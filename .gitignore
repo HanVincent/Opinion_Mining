@@ -1,0 +1,6 @@
+models/*.model
+dataset/*.txt
+
+.ipynb_checkpoints/
+*.model
+*.txt
