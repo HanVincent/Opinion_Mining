@@ -33,14 +33,14 @@ def get_data_pairs(file, ratio=0.1):
     return pairs[num:], pairs[:num]
 
 
-# In[3]:
+# In[5]:
 
-dse_train, dse_test = get_data_pairs('./dse.txt')
-ese_train, ese_test = get_data_pairs('./ese.txt')
+dse_train, dse_test = get_data_pairs('./dataset/dse.txt')
+ese_train, ese_test = get_data_pairs('./dataset/ese.txt')
 print(len(dse_train), len(ese_train))
 
 
-# In[4]:
+# In[6]:
 
 def get_dict(pair_data):
     # not normalized
@@ -59,7 +59,7 @@ word_to_ix, tag_to_ix = get_dict(dse_train)
 print(len(word_to_ix))
 
 
-# In[5]:
+# In[7]:
 
 class LSTMTagger(nn.Module):
  
@@ -105,7 +105,7 @@ class LSTMTagger(nn.Module):
             print(e)
 
 
-# In[6]:
+# In[8]:
 
 def prepare_sequence(seq, to_ix):
     idxs = [to_ix[w] if w in to_ix else 0 for w in seq]
@@ -114,15 +114,15 @@ def prepare_sequence(seq, to_ix):
     return autograd.Variable(tensor)
 
 
-# In[7]:
+# In[15]:
 
 EMBEDDING_DIM = 128
 HIDDEN_DIM = 128
 learning_rate = 0.1
 dropout = 0
-num_layers = 1
-bidirectional = False
-model_path = 'lstm_128.model'
+num_layers = 3
+bidirectional = True
+model_path = 'models/lstm_bi_3_128.model'
 epochs = 300
 
 model = LSTMTagger(EMBEDDING_DIM, HIDDEN_DIM, 
@@ -139,7 +139,7 @@ if torch.cuda.is_available():
     model.cuda()
 
 
-# In[ ]:
+# In[17]:
 
 # TRAIN
 
@@ -167,16 +167,16 @@ for epoch in range(epochs): # 我們要訓練300次，可以根據任務量的�
         optimizer.step()
     
     if (epoch + 1) % 5 == 0:
-        print("epoch: {}, loss: {}".format(epoch, loss))
+        print("epoch: {}, loss: {}".format(epoch+1, loss))
         torch.save(model.state_dict(), model_path)
 
 
-# In[ ]:
+# In[18]:
 
 # model.load_state_dict(torch.load(model_path))
 
 
-# In[ ]:
+# In[20]:
 
 # # TEST
 # wrong = 0
@@ -188,9 +188,9 @@ for epoch in range(epochs): # 我們要訓練300次，可以根據任務量的�
     
 #     for y, y_ in zip(true_targets, predict_targets):
 #         if tag_to_ix[y] != y_:
-#             print(seq)
-#             print(true_targets)
-#             print(predict_targets)
+# #             print(seq)
+# #             print(true_targets)
+# #             print(predict_targets)
 #             wrong += 1
 #             break
 

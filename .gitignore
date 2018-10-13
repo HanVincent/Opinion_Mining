@@ -1,5 +1,5 @@
 models/*.model
-dataset/*.txt
+dataset/*
 
 .ipynb_checkpoints/
 *.model
