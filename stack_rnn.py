@@ -1,7 +1,7 @@
 
 # coding: utf-8
 
-# In[1]:
+# In[21]:
 
 from collections import defaultdict
 from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
@@ -11,8 +11,8 @@ import torch.nn as nn             # 神經網絡模塊
 import torch.nn.functional as F   # 神經網絡模塊中的常用功能 
 import torch.optim as optim       # 模型優化器模塊
 import numpy as np
-import math
 import pickle
+import math, datetime, time
 
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
@@ -22,7 +22,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 is_cuda = torch.cuda.is_available()
 
 
-# In[2]:
+# In[22]:
 
 def get_sentence_target(entry):
     sentence, target = [], []
@@ -55,7 +55,7 @@ def group_data(file):
     return documents
 
 
-# In[3]:
+# In[23]:
 
 def split_dataset(documents, num):
     docs_list = open('dataset/datasplit/doclist.mpqaOriginalSubset', 'r', encoding='utf8').read().strip().split('\n')
@@ -77,7 +77,7 @@ def split_dataset(documents, num):
     return train, test, dev
 
 
-# In[4]:
+# In[24]:
 
 def sequence_to_ixs(seq, to_ix):
     ixs = [to_ix[w] if w in to_ix else to_ix[UNK_TOKEN] for w in seq]
@@ -102,7 +102,7 @@ def batch_seq_to_idx(seqs, to_ix):
     return [ sequence_to_ixs(seq, to_ix) for seq in seqs]
 
 
-# In[5]:
+# In[140]:
 
 class LSTMTagger(nn.Module):
  
@@ -129,11 +129,11 @@ class LSTMTagger(nn.Module):
 
     def init_hidden(self, batch_size):
         if is_cuda:
-            return (autograd.Variable(torch.randn(self.num_layers * self.direction, batch_size, self.hidden_dim).cuda()),
-                    autograd.Variable(torch.randn(self.num_layers * self.direction, batch_size, self.hidden_dim).cuda()))
+            return (autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim).cuda()),
+                    autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim).cuda()))
         else:
-            return (autograd.Variable(torch.randn(self.num_layers * self.direction, batch_size, self.hidden_dim)),
-                    autograd.Variable(torch.randn(self.num_layers * self.direction, batch_size, self.hidden_dim)))
+            return (autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim)),
+                    autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim)))
 
     def forward(self, sentence, lengths):
         batch_size, seq_len = sentence.shape
@@ -157,7 +157,7 @@ class LSTMTagger(nn.Module):
             print(e)
 
 
-# In[6]:
+# In[26]:
 
 def train(training_data):
     total_num = len(training_data)
@@ -191,14 +191,12 @@ def train(training_data):
 
         if (epoch + 1) % 5 == 0:
             print("epoch: {}, loss: {}".format(epoch+1, loss))
-            torch.save(model.state_dict(), model_path)
+            # torch.save(model.state_dict(), model_path)
 
 
-# In[7]:
+# In[32]:
 
 from evaluate import *
-
-# model.load_state_dict(torch.load(model_path))
 
 def test(test_data):
     with torch.no_grad():
@@ -219,10 +217,10 @@ def test(test_data):
         # 感覺可以實驗 tag by tag
         result = evaluate(y_predicts, y_trues)
         
-        return result
+        return result, (y_predicts, y_trues)
 
 
-# In[8]:
+# In[136]:
 
 # Constant
 UNK_TOKEN = '<UNK>'
@@ -230,11 +228,11 @@ UNK_TOKEN = '<UNK>'
 # Data 
 file_name = 'dataset/dse.txt'
 
-# Word embeddings
-source = 'word2vec'
-
 # Store model
-model_path = 'models/standard_80.model'
+model_path = 'models/' + datetime.datetime.utcfromtimestamp(time.time()).strftime("%Y%m%d_%H%M") + '.model'
+
+# Word embeddings
+source = 'glove'
 
 # Model hyper-parameters
 embedding_dim = 300
@@ -244,11 +242,11 @@ momentum = 0.7
 dropout = 0
 num_layers = 3
 bidirectional = True
-batch_size = 40
+batch_size = 80
 epochs = 200
 
 
-# In[9]:
+# In[79]:
 
 ### Get Word Embeddings
 with open(f'dataset/{source}.pickle', 'rb') as handle:
@@ -259,11 +257,12 @@ tag_to_ix = {"B": 0, "I": 1, "O": 2}
 ix_to_tag = {0: "B", 1: "I", 2: "O"}
 
 
-# In[10]:
+# In[81]:
 
+best_result = 0
 results = []
 for num in range(10):
-    print("Epoch:", num, "="*50)
+    print("10-fold:", num, "="*50)
     
     # Get Data and split
     documents = group_data(file_name)
@@ -286,27 +285,47 @@ for num in range(10):
         
     train(train_data)
     
-    result = test(test_data)
+    result, _ = test(test_data)
     
+    if result['proportional']['f1'] >= best_result:
+        best_result = result['proportional']['f1']        
+        torch.save(model.state_dict(), model_path)
+        print("Store Model with score: {}".format(best_result))
+        
     results.append(result)
 
 
-# In[5]:
+# In[143]:
 
 bin_result = { 'precision': .0, 'recall': .0, 'f1': .0 }
 prop_result = { 'precision': .0, 'recall': .0, 'f1': .0 }
 
 for i, result in enumerate(results):
-    for key in result['binary']: bin_result[key] += result['binary'][key]
-    for key in result['proportional']: prop_result[key] += result['proportional'][key]
+    for key in result['binary']: bin_result[key] += (result['binary'][key] / len(results))
+    for key in result['proportional']: prop_result[key] += (result['proportional'][key] / len(results))
     
     print("10-fold: {}".format(i))
     print("Binary Overlap\t\tPrecision: {precision:.2f}, Recall: {recall:.2f}, F1: {f1:.2f}".format(**result['binary']))
     print("Proportional Overlap\tPrecision: {precision:.2f}, Recall: {recall:.2f}, F1: {f1:.2f}".format(**result['proportional']))
 
-print("Average", "="*70)
+print("\nAverage", "="*70)
 print("Binary Overlap\t\tPrecision: {precision:.2f}, Recall: {recall:.2f}, F1: {f1:.2f}".format(**bin_result))
 print("Proportional Overlap\tPrecision: {precision:.2f}, Recall: {recall:.2f}, F1: {f1:.2f}".format(**prop_result))
+
+
+print("\nParams", "=" * 70)
+print(f'''model_path = {model_path}
+file_name = {file_name}
+source = {source}
+embedding_dim = {embedding_dim}
+hidden_dim = {hidden_dim}
+learning_rate = {learning_rate}
+momentum = {momentum}
+dropout = {dropout}
+num_layers = {num_layers}
+bidirectional = {bidirectional}
+batch_size = {batch_size}
+epochs = {epochs}''')
 
 
 # In[ ]:
@@ -314,19 +333,41 @@ print("Proportional Overlap\tPrecision: {precision:.2f}, Recall: {recall:.2f}, F
 
 
 
-# In[22]:
+# In[ ]:
 
-# params = list(model.parameters())
-# k = 0
-# for i in params:
-#     l = 1
 
-#     print("该层的结构：" + str(list(i.size())))
-#     for j in i.size():
-#         l *= j
-# #     print("该层参数和：" + str(l))
-#     k = k + l
-# print("总参数数量和：" + str(k))
+
+
+# In[141]:
+
+# # Get Data and split
+# documents = group_data(file_name)
+# train_data, test_data, dev_data = split_dataset(documents, 0)
+
+# # Create Model
+# model = LSTMTagger(embedding_dim, hidden_dim, 
+#                    len(tag_to_ix), 
+#                    dropout=dropout,
+#                    num_layers=num_layers,
+#                    bidirectional=bidirectional)
+
+# # model.load_state_dict(torch.load(model_path))
+
+# # If GPU available, use GPU 
+# if is_cuda: 
+#     model.cuda()
+
+# result, y_pair = test(test_data)
+# print(result)
+
+
+# In[142]:
+
+# for name, param in model.named_parameters():
+#     print( name, param.shape)
+    
+# total_param = sum(p.numel() for p in model.parameters())
+# print(total_param)
 
 
 # In[ ]:
