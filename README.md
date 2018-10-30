@@ -1,3 +1,3 @@
 ### Opinion Mining
 
-Intern Research
+Intern Research in National Institute of Informatics, Japan

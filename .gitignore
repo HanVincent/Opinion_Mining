@@ -2,6 +2,7 @@ __pycache__/
 models/*.model
 dataset/*
 logs/*
+log/*
 
 .ipynb_checkpoints/
 *.model

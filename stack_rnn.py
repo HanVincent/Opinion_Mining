@@ -1,7 +1,7 @@
 
 # coding: utf-8
 
-# In[21]:
+# In[ ]:
 
 from collections import defaultdict
 from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
@@ -19,10 +19,13 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 # os.environ["LANG"] = "en_US.UTF-8"
 # os.environ["LC_CTYPE"] = "en_US.UTF-8"
 
+from tensorboardX import SummaryWriter
+writer = SummaryWriter('log')
+
 is_cuda = torch.cuda.is_available()
 
 
-# In[22]:
+# In[ ]:
 
 def get_sentence_target(entry):
     sentence, target = [], []
@@ -55,7 +58,7 @@ def group_data(file):
     return documents
 
 
-# In[23]:
+# In[ ]:
 
 def split_dataset(documents, num):
     docs_list = open('dataset/datasplit/doclist.mpqaOriginalSubset', 'r', encoding='utf8').read().strip().split('\n')
@@ -77,7 +80,7 @@ def split_dataset(documents, num):
     return train, test, dev
 
 
-# In[24]:
+# In[ ]:
 
 def sequence_to_ixs(seq, to_ix):
     ixs = [to_ix[w] if w in to_ix else to_ix[UNK_TOKEN] for w in seq]
@@ -102,7 +105,7 @@ def batch_seq_to_idx(seqs, to_ix):
     return [ sequence_to_ixs(seq, to_ix) for seq in seqs]
 
 
-# In[140]:
+# In[ ]:
 
 class LSTMTagger(nn.Module):
  
@@ -135,6 +138,7 @@ class LSTMTagger(nn.Module):
             return (autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim)),
                     autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim)))
 
+        
     def forward(self, sentence, lengths):
         batch_size, seq_len = sentence.shape
         self.hidden = self.init_hidden(batch_size)
@@ -157,7 +161,7 @@ class LSTMTagger(nn.Module):
             print(e)
 
 
-# In[26]:
+# In[ ]:
 
 def train(training_data):
     total_num = len(training_data)
@@ -191,10 +195,11 @@ def train(training_data):
 
         if (epoch + 1) % 5 == 0:
             print("epoch: {}, loss: {}".format(epoch+1, loss))
-            # torch.save(model.state_dict(), model_path)
+            
+            writer.add_scalar('Train/Loss'.format(epoch), loss.data[0], epoch)
 
 
-# In[32]:
+# In[ ]:
 
 from evaluate import *
 
@@ -220,13 +225,13 @@ def test(test_data):
         return result, (y_predicts, y_trues)
 
 
-# In[136]:
+# In[ ]:
 
 # Constant
 UNK_TOKEN = '<UNK>'
 
 # Data 
-file_name = 'dataset/dse.txt'
+file_name = 'dataset/ese.txt'
 
 # Store model
 model_path = 'models/' + datetime.datetime.utcfromtimestamp(time.time()).strftime("%Y%m%d_%H%M") + '.model'
@@ -246,7 +251,7 @@ batch_size = 80
 epochs = 200
 
 
-# In[79]:
+# In[ ]:
 
 ### Get Word Embeddings
 with open(f'dataset/{source}.pickle', 'rb') as handle:
@@ -257,7 +262,7 @@ tag_to_ix = {"B": 0, "I": 1, "O": 2}
 ix_to_tag = {0: "B", 1: "I", 2: "O"}
 
 
-# In[81]:
+# In[ ]:
 
 best_result = 0
 results = []
@@ -280,8 +285,7 @@ for num in range(10):
     optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, momentum=momentum)
 
     # If GPU available, use GPU 
-    if is_cuda: 
-        model.cuda()
+    if is_cuda: model.cuda()
         
     train(train_data)
     
@@ -295,7 +299,7 @@ for num in range(10):
     results.append(result)
 
 
-# In[143]:
+# In[ ]:
 
 bin_result = { 'precision': .0, 'recall': .0, 'f1': .0 }
 prop_result = { 'precision': .0, 'recall': .0, 'f1': .0 }
@@ -305,12 +309,12 @@ for i, result in enumerate(results):
     for key in result['proportional']: prop_result[key] += (result['proportional'][key] / len(results))
     
     print("10-fold: {}".format(i))
-    print("Binary Overlap\t\tPrecision: {precision:.2f}, Recall: {recall:.2f}, F1: {f1:.2f}".format(**result['binary']))
-    print("Proportional Overlap\tPrecision: {precision:.2f}, Recall: {recall:.2f}, F1: {f1:.2f}".format(**result['proportional']))
+    print("Binary Overlap\t\tPrecision: {precision:.3f}, Recall: {recall:.3f}, F1: {f1:.3f}".format(**result['binary']))
+    print("Proportional Overlap\tPrecision: {precision:.3f}, Recall: {recall:.3f}, F1: {f1:.3f}".format(**result['proportional']))
 
 print("\nAverage", "="*70)
-print("Binary Overlap\t\tPrecision: {precision:.2f}, Recall: {recall:.2f}, F1: {f1:.2f}".format(**bin_result))
-print("Proportional Overlap\tPrecision: {precision:.2f}, Recall: {recall:.2f}, F1: {f1:.2f}".format(**prop_result))
+print("Binary Overlap\t\tPrecision: {precision:.3f}, Recall: {recall:.3f}, F1: {f1:.3f}".format(**bin_result))
+print("Proportional Overlap\tPrecision: {precision:.3f}, Recall: {recall:.3f}, F1: {f1:.3f}".format(**prop_result))
 
 
 print("\nParams", "=" * 70)
@@ -338,7 +342,7 @@ epochs = {epochs}''')
 
 
 
-# In[141]:
+# In[ ]:
 
 # # Get Data and split
 # documents = group_data(file_name)
@@ -361,7 +365,7 @@ epochs = {epochs}''')
 # print(result)
 
 
-# In[142]:
+# In[ ]:
 
 # for name, param in model.named_parameters():
 #     print( name, param.shape)
