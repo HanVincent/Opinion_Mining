@@ -1,7 +1,7 @@
 
 # coding: utf-8
 
-# In[ ]:
+# In[12]:
 
 from torch.nn.utils.rnn import pad_sequence
 
@@ -16,7 +16,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 is_cuda = torch.cuda.is_available()
 
 
-# In[ ]:
+# In[13]:
 
 from tensorboardX import SummaryWriter
 writer = SummaryWriter('log')
@@ -30,7 +30,7 @@ from utils.preprocess import get_sentence_target, group_data, split_dataset
 # In[ ]:
 
 # Stacked BiLSTM
-# from LSTM.standard_LSTM import LSTMTagger
+from LSTM.standard_LSTM import LSTMTagger
 
 
 # In[ ]:
@@ -86,7 +86,7 @@ def train(training_data):
 
 # In[ ]:
 
-from evaluate import *
+from utils.evaluate import evaluate
 
 def test(test_data):
     with torch.no_grad():
@@ -115,7 +115,7 @@ def test(test_data):
 UNK_TOKEN = '<UNK>'
 
 # Data 
-file_name = 'dataset/dse.txt'
+file_name = 'dataset/ese.txt'
 
 # Store model
 model_path = 'models/' + datetime.datetime.utcfromtimestamp(time.time()).strftime("%Y%m%d_%H%M") + '.model'
