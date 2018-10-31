@@ -3,81 +3,34 @@
 
 # In[ ]:
 
-from collections import defaultdict
-from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
+from torch.nn.utils.rnn import pad_sequence
+
 import torch
-import torch.autograd as autograd # torch中自動計算梯度模塊
-import torch.nn as nn             # 神經網絡模塊
-import torch.nn.functional as F   # 神經網絡模塊中的常用功能 
+import torch.nn as nn
 import torch.optim as optim       # 模型優化器模塊
+
 import numpy as np
-import pickle
-import math, datetime, time
-
-import os
+import pickle, math, datetime, time, os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-# os.environ["LANG"] = "en_US.UTF-8"
-# os.environ["LC_CTYPE"] = "en_US.UTF-8"
-
-from tensorboardX import SummaryWriter
-writer = SummaryWriter('log')
 
 is_cuda = torch.cuda.is_available()
 
 
 # In[ ]:
 
-def get_sentence_target(entry):
-    sentence, target = [], []
-    for line in entry.split('\n'):
-        if line.strip() == '': continue
-                
-        token, pos, bio = line.split('\t')
-    
-        if token in ['-LRB-', '-LSB-', '-LCB-']: token = '('
-        elif token in ['-RRB-', '-RSB-', '-RCB-']: token = ')'
-            
-        sentence.append(token)
-        target.append(bio)
-        
-    return sentence, target
-
-
-def group_data(file):
-    sentenceIDs = open('dataset/sentenceid.txt', 'r', encoding='utf8').read().strip().split('\n')
-    entries = open(file, 'r', encoding='utf8').read().strip().split('\n\n')
-
-    assert len(sentenceIDs) == len(entries)
-    
-    documents = defaultdict(lambda: [])
-    for sent_id, entry in zip(sentenceIDs, entries):
-        sent_id = sent_id.split(' ')[2]
-        sentence, target = get_sentence_target(entry)        
-        documents[sent_id].append((sentence, target))
-
-    return documents
+from tensorboardX import SummaryWriter
+writer = SummaryWriter('log')
 
 
 # In[ ]:
 
-def split_dataset(documents, num):
-    docs_list = open('dataset/datasplit/doclist.mpqaOriginalSubset', 'r', encoding='utf8').read().strip().split('\n')
-    train_ids = open(f'dataset/datasplit/filelist_train{num}', 'r', encoding='utf8').read().strip().split('\n')
-    test_ids = open(f'dataset/datasplit/filelist_test{num}', 'r', encoding='utf8').read().strip().split('\n')
-    
-    train, test, dev = [], [], []
-    for doc_id in docs_list:
-        if   doc_id in train_ids: train.extend(documents[doc_id])
-        elif doc_id in test_ids: test.extend(documents[doc_id])
-        else: dev.extend(documents[doc_id])
-    
-    train.sort(key=lambda pair: len(pair[1]), reverse=True)
-    test.sort(key=lambda pair: len(pair[1]), reverse=True)
-    dev.sort(key=lambda pair: len(pair[1]), reverse=True)
-    
-    print("Train size: {}, Test size: {}, Dev size: {}".format(len(train), len(test), len(dev)))
-    
-    return train, test, dev
+from utils.preprocess import get_sentence_target, group_data, split_dataset
+
+
+# In[ ]:
+
+# Stacked BiLSTM
+# from LSTM.standard_LSTM import LSTMTagger
 
 
 # In[ ]:
@@ -90,75 +43,6 @@ def sequence_to_ixs(seq, to_ix):
 def ixs_to_sequence(seq, to_word):
     tokens = [to_word[ix] for ix in seq]
     return tokens
-
-
-def padding(seq, max_size):
-    diff = max_size - len(seq)
-    return seq + [PAD_TOKEN] * diff
-
-
-def batch_padding(seqs, max_size):
-    return [ padding(seq, max_size) for seq in seqs]
-
-
-def batch_seq_to_idx(seqs, to_ix):
-    return [ sequence_to_ixs(seq, to_ix) for seq in seqs]
-
-
-# In[ ]:
-
-class LSTMTagger(nn.Module):
- 
-    def __init__(self, embedding_dim, hidden_dim, 
-                 tagset_size, 
-                 dropout, num_layers, bidirectional):
-        super(LSTMTagger, self).__init__()
-        
-        self.direction = 2 if bidirectional else 1
-        self.hidden_dim = hidden_dim // self.direction
-        self.num_layers = num_layers
-        self.tagset_size = tagset_size
-
-        weights = torch.cuda.FloatTensor(embedding_weights) if is_cuda else torch.FloatTensor(embedding_weights)
-        self.word_embeddings = nn.Embedding.from_pretrained(weights, freeze=True)
-        
-        self.lstm = nn.LSTM(embedding_dim, self.hidden_dim, 
-                            dropout=dropout, num_layers=self.num_layers,
-                            bidirectional=bidirectional,
-                            batch_first=True)
- 
-        self.hidden2tag = nn.Linear(self.hidden_dim * self.direction, self.tagset_size)
- 
-
-    def init_hidden(self, batch_size):
-        if is_cuda:
-            return (autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim).cuda()),
-                    autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim).cuda()))
-        else:
-            return (autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim)),
-                    autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim)))
-
-        
-    def forward(self, sentence, lengths):
-        batch_size, seq_len = sentence.shape
-        self.hidden = self.init_hidden(batch_size)
-        
-        try:
-            embeds = self.word_embeddings(sentence) # [batch_size, seq_len, emb_dim]
-            embeds = pack_padded_sequence(embeds, lengths, batch_first=True)
-            
-            lstm_out, self.hidden = self.lstm(embeds, self.hidden)
-            lstm_out, lengths = pad_packed_sequence(lstm_out, batch_first=True)
-
-            tag_space = self.hidden2tag(lstm_out.contiguous().view(batch_size * seq_len, -1))
-            tag_scores = F.log_softmax(tag_space, dim=1)
-    
-            return tag_scores
-        
-        except Exception as e:
-            print(sentence.shape)
-            print(embeds.shape)
-            print(e)
 
 
 # In[ ]:
@@ -185,6 +69,7 @@ def train(training_data):
             padded_tags = pad_sequence(y, batch_first=True)
 
             predict_tags = model(padded_seqs, lengths)
+            
             true_tags = padded_tags.view(-1)
 
             loss = loss_function(predict_tags, true_tags)
@@ -219,7 +104,6 @@ def test(test_data):
         y_trues = y
         y_predicts = [y_[:lengths[i]] for i, y_ in enumerate(y_predicts)]
 
-        # 感覺可以實驗 tag by tag
         result = evaluate(y_predicts, y_trues)
         
         return result, (y_predicts, y_trues)
@@ -231,7 +115,7 @@ def test(test_data):
 UNK_TOKEN = '<UNK>'
 
 # Data 
-file_name = 'dataset/ese.txt'
+file_name = 'dataset/dse.txt'
 
 # Store model
 model_path = 'models/' + datetime.datetime.utcfromtimestamp(time.time()).strftime("%Y%m%d_%H%M") + '.model'
@@ -274,19 +158,19 @@ for num in range(10):
     train_data, test_data, dev_data = split_dataset(documents, num)
 
     # Create Model
-    model = LSTMTagger(embedding_dim, hidden_dim, 
+    model = LSTMTagger(embedding_dim, embedding_weights,
+                       hidden_dim, 
                        len(tag_to_ix), 
                        dropout=dropout,
                        num_layers=num_layers,
                        bidirectional=bidirectional)
 
+    if is_cuda: model.cuda()
+        
     loss_function = nn.NLLLoss()
 
     optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, momentum=momentum)
 
-    # If GPU available, use GPU 
-    if is_cuda: model.cuda()
-        
     train(train_data)
     
     result, _ = test(test_data)
