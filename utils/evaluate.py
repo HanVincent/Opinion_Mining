@@ -1,5 +1,4 @@
-tag_to_ix = {"B": 0, "I": 1, "O": 2}
-ix_to_tag = {0: "B", 1: "I", 2: "O"}
+from .constant import *
 
 def get_segments(tag_seq):
     segs = []

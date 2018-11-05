@@ -10,14 +10,14 @@ is_cuda = torch.cuda.is_available()
 class LSTMTagger(nn.Module):
  
     def __init__(self, embedding_dim, embedding_weights,
-                 hidden_dim, tagset_size, dropout, num_layers, bidirectional):
+                 hidden_dim, tag_to_ix, dropout, num_layers, bidirectional):
         
         super(LSTMTagger, self).__init__()
         
         self.direction = 2 if bidirectional else 1
         self.hidden_dim = hidden_dim // self.direction
         self.num_layers = num_layers
-        self.tagset_size = tagset_size
+        self.tagset_size = len(tag_to_ix)
 
         weights = torch.cuda.FloatTensor(embedding_weights) if is_cuda else torch.FloatTensor(embedding_weights)
         self.word_embeddings = nn.Embedding.from_pretrained(weights, freeze=True)
@@ -31,12 +31,10 @@ class LSTMTagger(nn.Module):
  
 
     def init_hidden(self, batch_size):
-        if is_cuda:
-            return (autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim).cuda()),
-                    autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim).cuda()))
-        else:
-            return (autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim)),
-                    autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim)))
+        h_states = autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim))
+        c_states = autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim))
+        
+        return (h_states.cuda(), c_states.cuda()) if is_cuda else (h_states, c_states)
 
         
     def forward(self, sentence, lengths):
