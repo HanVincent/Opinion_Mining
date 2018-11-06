@@ -1,7 +1,8 @@
 # Constant
 UNK_TOKEN = '<UNK>'
 PAD_TOKEN = '<PAD>'
-
+START_TAG = "<START>"
+STOP_TAG = "<STOP>"
 
 # Tag set
 tag_to_ix = {PAD_TOKEN: 0, "B": 1, "I": 2, "O": 3}

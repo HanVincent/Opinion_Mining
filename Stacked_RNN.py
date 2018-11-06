@@ -192,7 +192,7 @@ def test(test_data):
 
 
 # Data 
-file_name = 'dataset/dse.txt'
+file_name = 'dataset/ese.txt'
 
 # Store model
 model_path = 'models/' + datetime.datetime.utcfromtimestamp(time.time()).strftime("%Y%m%d_%H%M") + '.model'
@@ -205,7 +205,7 @@ embedding_dim = 300
 hidden_dim = 100
 learning_rate = 0.03
 momentum = 0.7
-dropout = 0.3
+dropout = 0
 num_layers = 3
 bidirectional = True
 batch_size = 80
@@ -302,55 +302,55 @@ epochs = {epochs}''')
 # In[ ]:
 
 
-model_path = 'models/20181105_1001.model'
-fname = 'dse'
+# model_path = 'models/20181105_1001.model'
+# fname = 'dse'
 
-# Get Data and split
-documents = group_data(file_name)
-train_data, test_data, dev_data = split_dataset(documents, 5)
+# # Get Data and split
+# documents = group_data(file_name)
+# train_data, test_data, dev_data = split_dataset(documents, 5)
 
 
-# Create Model
-model = LSTMTagger(embedding_dim, embedding_weights,
-                   hidden_dim, tag_to_ix,
-                   dropout=dropout,
-                   num_layers=num_layers,
-                   bidirectional=bidirectional)
+# # Create Model
+# model = LSTMTagger(embedding_dim, embedding_weights,
+#                    hidden_dim, tag_to_ix,
+#                    dropout=dropout,
+#                    num_layers=num_layers,
+#                    bidirectional=bidirectional)
 
-model.load_state_dict(torch.load(model_path))
+# model.load_state_dict(torch.load(model_path))
 
-if is_cuda: model.cuda()
+# if is_cuda: model.cuda()
 
-result, y_pair = test(test_data)
+# result, y_pair = test(test_data)
 
-print(result)
+# print(result)
 
 
 # In[ ]:
 
 
-ys_, ys = y_pair
+# ys_, ys = y_pair
 
-ws = open(f'dataset/failure_{fname}.txt', 'w', encoding='utf8')
-correct = 0
-for (tks, tags), y_, y in zip(test_data, ys_, ys):
-    if sum(torch.eq(y_, y)) == len(tks):
-        correct += 1
-    else:
-        sents, trues, bios = [], [], []
-        for i, tk in enumerate(tks):
-            length = len(tk)
-            sents.append(tk)
-            bios.append('{:>{length}s}'.format(ix_to_tag[int(y_[i])], length=length))
-            trues.append('{:>{length}s}'.format(ix_to_tag[int(y[i])], length=length))
+# ws = open(f'dataset/failure_{fname}.txt', 'w', encoding='utf8')
+# correct = 0
+# for (tks, tags), y_, y in zip(test_data, ys_, ys):
+#     if sum(torch.eq(y_, y)) == len(tks):
+#         correct += 1
+#     else:
+#         sents, trues, bios = [], [], []
+#         for i, tk in enumerate(tks):
+#             length = len(tk)
+#             sents.append(tk)
+#             bios.append('{:>{length}s}'.format(ix_to_tag[int(y_[i])], length=length))
+#             trues.append('{:>{length}s}'.format(ix_to_tag[int(y[i])], length=length))
             
-        print(' '.join(sents), file=ws)
-        print(' '.join(bios), file=ws)
-        print(' '.join(trues), file=ws)
-        print("="*20, file=ws)
+#         print(' '.join(sents), file=ws)
+#         print(' '.join(bios), file=ws)
+#         print(' '.join(trues), file=ws)
+#         print("="*20, file=ws)
         
-ws.close()
-print(correct / len(test_data))
+# ws.close()
+# print(correct / len(test_data))
 
 
 # ### Calculate the number of parameters
