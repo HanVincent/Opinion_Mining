@@ -1,4 +1,6 @@
 from constant import UNK_TOKEN
+import numpy as np
+import pickle
 
 def get_vectors(source, maximum=50000000000):
     word_vectors, embedding_weights = {}, []
@@ -50,7 +52,8 @@ def get_vectors(source, maximum=50000000000):
 
 
 
-source = 'word2vec'
+source = 'glove'
+embedding_dim = 300
 
 word_vectors, embedding_weights, word_to_ix, ix_to_word = get_vectors(source)
 
