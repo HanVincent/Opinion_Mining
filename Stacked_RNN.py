@@ -196,7 +196,7 @@ source = 'glove'
 # Model hyper-parameters
 embedding_dim = 300
 hidden_dim = 100
-learning_rate = 0.03
+learning_rate = 0.01
 momentum = 0.7
 dropout = 0
 num_layers = 3
