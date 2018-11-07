@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+
 # coding: utf-8
 
 # In[ ]:
@@ -14,6 +14,9 @@ import torch.nn.functional as F   # 神經網絡模塊中的常用功能
 
 import numpy as np
 import pickle, math, datetime, time
+
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 is_cuda = torch.cuda.is_available()
 
@@ -33,8 +36,6 @@ from utils.preprocess import get_sentence_target, group_data, split_dataset
 
 # In[ ]:
 
-
-is_cuda = torch.cuda.is_available()
 
 class LSTMTagger(nn.Module):
  
@@ -67,39 +68,29 @@ class LSTMTagger(nn.Module):
         return (h_states.cuda(), c_states.cuda()) if is_cuda else (h_states, c_states)
 
         
-    def forward(self, sentence, lengths):
-        batch_size, seq_len = sentence.shape
+    def forward(self, sentences, mask):
+        batch_size, seq_len = sentences.shape
         self.hidden = self.init_hidden(batch_size)
-        
-        try:
-            embeds = self.word_embeddings(sentence) # [batch_size, seq_len, emb_dim]
-            embeds = pack_padded_sequence(embeds, lengths, batch_first=True)
-            
-            lstm_out, self.hidden = self.lstm(embeds, self.hidden)
-            lstm_out, lengths = pad_packed_sequence(lstm_out, batch_first=True)
 
-            tag_space = self.hidden2tag(lstm_out.contiguous().view(batch_size * seq_len, -1))
-            tag_scores = F.log_softmax(tag_space, dim=1)
+        embeds = self.word_embeddings(sentences) # [batch_size, seq_len, emb_dim]
+        embeds = pack_padded_sequence(embeds, mask.sum(1).int(), batch_first=True)
 
-            return tag_scores
-        
-        except Exception as e:
-            print(sentence.shape)
-            print(embeds.shape)
-            print(e)
+        lstm_out, self.hidden = self.lstm(embeds, self.hidden)
+        lstm_out, lengths = pad_packed_sequence(lstm_out, batch_first=True)
+
+        tag_space = self.hidden2tag(lstm_out)
+        tag_scores = F.log_softmax(tag_space, dim=2)
+
+        return tag_scores
             
             
-    def loss(self, y_, y):
-        y = y.view(-1)
+    def loss(self, y_, y, mask):
+        batch_size, seq_len, tagset_size = y_.shape
 
-        # create a mask by filtering out all tokens that ARE NOT the padding token
-        mask = (y > self.tag_to_ix[PAD_TOKEN]).float().view(-1, 1)
+        y_ = torch.mul(y_, mask.unsqueeze(-1).expand([batch_size, seq_len, tagset_size]))
 
-        # count how many tokens we have
-        nb_tokens = int(torch.sum(mask).data[0])
-
-        # pick the values for the label and zero out the rest with the mask
-        y_ = torch.mul(y_, mask)
+        y_ = y_.view(batch_size*seq_len, -1)
+        y  = y.view(-1)
         
         loss_ = loss_function(y_, y)
 
@@ -113,11 +104,13 @@ class LSTMTagger(nn.Module):
 
 def sequence_to_ixs(seq, to_ix):
     ixs = [to_ix[w] if w in to_ix else to_ix[UNK_TOKEN] for w in seq]
+    
     return torch.cuda.LongTensor(ixs) if is_cuda else torch.LongTensor(ixs)
 
 
 def ixs_to_sequence(seq, to_word):
     tokens = [to_word[ix] for ix in seq]
+    
     return tokens
 
 
@@ -139,19 +132,19 @@ def train(training_data):
             y = list(map(lambda pair: sequence_to_ixs(pair[1], tag_to_ix), data))
 
             assert len(x) == len(y)
-
-            lengths = list(map(lambda x: x.shape[0], x))
-
+            
             padded_seqs = pad_sequence(x, batch_first=True)
             padded_tags = pad_sequence(y, batch_first=True)
             
+            mask = padded_tags.data.gt(0).float() # PAD = 0
+            
             true_tags = padded_tags
 
-            predict_tags = model(padded_seqs, lengths)
+            predict_tags = model(padded_seqs, mask)
             
             optimizer.zero_grad()
             
-            loss = model.loss(predict_tags, true_tags)
+            loss = model.loss(predict_tags, true_tags, mask)
             
             optimizer.step()
 
@@ -192,7 +185,7 @@ def test(test_data):
 
 
 # Data 
-file_name = 'dataset/ese.txt'
+file_name = 'dataset/dse.txt'
 
 # Store model
 model_path = 'models/' + datetime.datetime.utcfromtimestamp(time.time()).strftime("%Y%m%d_%H%M") + '.model'
@@ -251,7 +244,7 @@ for num in range(10):
     
     if result['proportional']['f1'] >= best_result:
         best_result = result['proportional']['f1']        
-        torch.save(model.state_dict(), model_path)
+        # torch.save(model.state_dict(), model_path)
         print("Store Model with score: {}".format(best_result))
         
     results.append(result)
@@ -289,12 +282,6 @@ num_layers = {num_layers}
 bidirectional = {bidirectional}
 batch_size = {batch_size}
 epochs = {epochs}''')
-
-
-# In[ ]:
-
-
-
 
 
 # ### Load model and observe the prediction
@@ -363,10 +350,4 @@ epochs = {epochs}''')
     
 # total_param = sum(p.numel() for p in model.parameters())
 # print(total_param)
-
-
-# In[ ]:
-
-
-
 
