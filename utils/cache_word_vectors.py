@@ -1,3 +1,5 @@
+from constant import UNK_TOKEN
+
 def get_vectors(source, maximum=50000000000):
     word_vectors, embedding_weights = {}, []
     ix, word_to_ix, ix_to_word = 0, {}, {}
@@ -47,7 +49,7 @@ def get_vectors(source, maximum=50000000000):
     return word_vectors, embedding_weights, word_to_ix, ix_to_word
 
 
-UNK_TOKEN = '<UNK>'
+
 source = 'word2vec'
 
 word_vectors, embedding_weights, word_to_ix, ix_to_word = get_vectors(source)
