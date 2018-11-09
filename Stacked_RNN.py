@@ -1,4 +1,4 @@
-
+#!/usr/bin/env python
 # coding: utf-8
 
 # In[ ]:
@@ -62,14 +62,15 @@ class LSTMTagger(nn.Module):
  
 
     def init_hidden(self, batch_size):
-        h_states = autograd.Variable(torch.randn(self.num_layers * self.direction, batch_size, self.hidden_dim))
-        c_states = autograd.Variable(torch.randn(self.num_layers * self.direction, batch_size, self.hidden_dim))
+        h_states = autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim))
+        c_states = autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim))
         
         return (h_states.cuda(), c_states.cuda()) if is_cuda else (h_states, c_states)
 
         
-    def forward(self, sentences, mask):
+    def _forward_alg(self, sentences, mask):
         batch_size, seq_len = sentences.shape
+        
         self.hidden = self.init_hidden(batch_size)
 
         embeds = self.word_embeddings(sentences) # [batch_size, seq_len, emb_dim]
@@ -81,14 +82,21 @@ class LSTMTagger(nn.Module):
         tag_space = self.hidden2tag(lstm_out)
         tag_scores = F.log_softmax(tag_space, dim=2)
 
-        return tag_scores
+        y_ = torch.mul(tag_scores, mask.unsqueeze(-1).expand([batch_size, seq_len, self.tagset_size]))
+        
+        return y_
+
+        
+    def forward(self, sentences, mask):
+        y_ = self._forward_alg(sentences, mask)
+
+        return y_
             
             
-    def loss(self, y_, y, mask):
-        batch_size, seq_len, tagset_size = y_.shape
-
-        y_ = torch.mul(y_, mask.unsqueeze(-1).expand([batch_size, seq_len, tagset_size]))
-
+    def loss(self, sentences, y, mask):
+        batch_size, seq_len = sentences.shape
+        
+        y_ = self._forward_alg(sentences, mask)
         y_ = y_.view(batch_size*seq_len, -1)
         y  = y.view(-1)
         
@@ -135,16 +143,14 @@ def train(training_data):
             
             padded_seqs = pad_sequence(x, batch_first=True)
             padded_tags = pad_sequence(y, batch_first=True)
-            
+        
             mask = padded_tags.data.gt(0).float() # PAD = 0
             
             true_tags = padded_tags
 
-            predict_tags = model(padded_seqs, mask)
-            
             optimizer.zero_grad()
             
-            loss = model.loss(predict_tags, true_tags, mask)
+            loss = model.loss(padded_seqs, true_tags, mask)
             
             optimizer.step()
 
@@ -167,17 +173,21 @@ def test(test_data):
         x = list(map(lambda pair: sequence_to_ixs(pair[0], word_to_ix), data))
         y = list(map(lambda pair: sequence_to_ixs(pair[1], tag_to_ix), data))
 
-        lengths = list(map(lambda x: x.shape[0], x))
-
         padded_seqs = pad_sequence(x, batch_first=True)
-        y_predicts = model(padded_seqs, lengths)
-        y_predicts = torch.max(y_predicts, 1)[1].view([len(x), -1])
+        padded_tags = pad_sequence(y, batch_first=True)
 
+        mask = padded_tags.data.gt(0).float() # PAD = 0
+        
+        y_predicts = model(padded_seqs, mask) #[80, 169, 4]
+        
+        y_predicts = torch.max(y_predicts, 2)[1].view([len(x), -1])
+        
         y_trues = y
-        y_predicts = [y_[:lengths[i]] for i, y_ in enumerate(y_predicts)]
+        
+        y_predicts = [y_[:len(y_trues[i])] for i, y_ in enumerate(y_predicts)]
 
         result = evaluate(y_predicts, y_trues)
-        
+
         return result, (y_predicts, y_trues)
 
 
@@ -196,13 +206,29 @@ source = 'glove'
 # Model hyper-parameters
 embedding_dim = 300
 hidden_dim = 100
-learning_rate = 0.01
+learning_rate = 0.03
 momentum = 0.7
-dropout = 0
 num_layers = 3
 bidirectional = True
+dropout = 0
 batch_size = 80
 epochs = 200
+
+
+# In[ ]:
+
+
+import sys
+
+argv = sys.argv[1:]
+
+source = argv[0]
+hidden_dim = int(argv[1])
+learning_rate = float(argv[2])
+num_layers = int(argv[3])
+bidirectional = int(argv[4])
+dropout = float(argv[5])
+batch_size = int(argv[6])
 
 
 # In[ ]:
@@ -239,12 +265,12 @@ for num in range(10):
                           lr=learning_rate, momentum=momentum)
 
     train(train_data)
-    
+
     result, _ = test(test_data)
     
     if result['proportional']['f1'] >= best_result:
         best_result = result['proportional']['f1']        
-        # torch.save(model.state_dict(), model_path)
+        torch.save(model.state_dict(), model_path)
         print("Store Model with score: {}".format(best_result))
         
     results.append(result)
@@ -282,6 +308,12 @@ num_layers = {num_layers}
 bidirectional = {bidirectional}
 batch_size = {batch_size}
 epochs = {epochs}''')
+
+
+# In[ ]:
+
+
+
 
 
 # ### Load model and observe the prediction
@@ -350,4 +382,10 @@ epochs = {epochs}''')
     
 # total_param = sum(p.numel() for p in model.parameters())
 # print(total_param)
+
+
+# In[ ]:
+
+
+
 

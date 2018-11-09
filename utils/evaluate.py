@@ -13,7 +13,7 @@ def get_segments(tag_seq):
         elif y == tag_to_ix["I"]:
             if start == -1: start = i
         else:
-            print(y)
+            print("Bad predicted")
     
     if start != -1 and start != len(tag_seq):
         segs.append((start, len(tag_seq)))
