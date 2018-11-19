@@ -37,12 +37,12 @@ from utils.preprocess import get_sentence_target, group_data, split_dataset
 # In[ ]:
 
 
-class LSTMTagger(nn.Module):
+class BiLSTM_CRF(nn.Module):
  
     def __init__(self, embedding_dim, embedding_weights,
                  hidden_dim, tag_to_ix, dropout, num_layers, bidirectional):
         
-        super(LSTMTagger, self).__init__()
+        super(BiLSTM_CRF, self).__init__()
         
         self.direction = 2 if bidirectional else 1
         self.hidden_dim = hidden_dim // self.direction
@@ -58,53 +58,181 @@ class LSTMTagger(nn.Module):
                             bidirectional=bidirectional,
                             batch_first=True)
  
-        self.hidden2tag = nn.Linear(self.hidden_dim * self.direction, self.tagset_size)
- 
 
+        # Maps the output of the LSTM into tag space.
+        self.hidden2tag = nn.Linear(self.hidden_dim * self.direction, self.tagset_size)
+
+        # Matrix of transition parameters.  Entry i,j is the score of transitioning *to* i *from* j.
+        init_transitions = torch.randn(self.tagset_size, self.tagset_size)
+   
+        # These two statements enforce the constraint that we never transfer
+        # to the start tag and we never transfer from the stop tag
+        init_transitions.data[tag_to_ix[START_TAG], :] = -10000.0
+        init_transitions.data[:, tag_to_ix[STOP_TAG]] = -10000.0
+        
+        if is_cuda: init_transitions = init_transitions.cuda()
+
+        self.transitions = nn.Parameter(init_transitions)
+        
+        self = self.cuda() if is_cuda else self
+        
+      
     def init_hidden(self, batch_size):
-        h_states = autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim))
-        c_states = autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim))
+#         h_states = autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim))
+#         c_states = autograd.Variable(torch.zeros(self.num_layers * self.direction, batch_size, self.hidden_dim))
+
+        h_states = torch.randn(self.num_layers * self.direction, batch_size, self.hidden_dim)
+        c_states = torch.randn(self.num_layers * self.direction, batch_size, self.hidden_dim)
         
         return (h_states.cuda(), c_states.cuda()) if is_cuda else (h_states, c_states)
 
+
+    def _forward_alg(self, feats, mask):
+        batch_size, seq_len, tagset_size = feats.shape
         
-    def _forward_alg(self, sentences, mask):
+        # Do the forward algorithm to compute the partition function
+        init_alphas = torch.full((batch_size, self.tagset_size), -10000.) # [B, C]
+        if is_cuda: init_alphas = init_alphas.cuda()
+        
+        # START_TAG has all of the score.
+        init_alphas[:, self.tag_to_ix[START_TAG]] = 0.
+        
+        trans = self.transitions.unsqueeze(0) # [1, C, C]
+
+        # Wrap in a variable so that we will get automatic backprop
+        score = init_alphas # forward_var
+        
+        # Iterate through the sentence
+        for t in range(seq_len): # recursion through the sequence
+            mask_t = mask[:, t].unsqueeze(1)
+            emit_t = feats[:, t].unsqueeze(2) # [B, C, 1]
+            score_t = score.unsqueeze(1) + emit_t + trans # [B, 1, C] -> [B, C, C]
+            score_t = log_sum_exp(score_t) # [B, C, C] -> [B, C]
+            score = score_t * mask_t + score * (1 - mask_t)
+            
+        score = log_sum_exp(score + self.transitions[tag_to_ix[STOP_TAG]]) # termination
+        
+        # return alpha
+        return score # partition function
+    
+
+    def _get_lstm_features(self, sentences, mask):
         batch_size, seq_len = sentences.shape
         
         self.hidden = self.init_hidden(batch_size)
 
-        embeds = self.word_embeddings(sentences) # [batch_size, seq_len, emb_dim]
+        embeds = self.word_embeddings(sentences)
         embeds = pack_padded_sequence(embeds, mask.sum(1).int(), batch_first=True)
 
         lstm_out, self.hidden = self.lstm(embeds, self.hidden)
         lstm_out, lengths = pad_packed_sequence(lstm_out, batch_first=True)
-
-        tag_space = self.hidden2tag(lstm_out)
-        tag_scores = F.log_softmax(tag_space, dim=2)
-
-        y_ = torch.mul(tag_scores, mask.unsqueeze(-1).expand([batch_size, seq_len, self.tagset_size]))
         
-        return y_
-
+        # lstm_out = lstm_out.view(len(sentence), self.hidden_dim)
+        # lstm_out = lstm_out.contiguous().view(batch_size * seq_len, -1)
         
-    def forward(self, sentences, mask):
-        y_ = self._forward_alg(sentences, mask)
+        lstm_feats = self.hidden2tag(lstm_out) 
+        
+        lstm_feats = lstm_feats * mask.unsqueeze(-1)
+        # lstm_feats = lstm_feats.view(batch_size, seq_len, -1)
+        
+        return lstm_feats
 
-        return y_
+    
+    # calculate the score of a given sequence 
+    def _score_sentence(self, feats, tags, mask):
+        batch_size, seq_len, tagset_size = feats.shape
+        
+        score = torch.zeros(batch_size)
+        if is_cuda: score = score.cuda()
+        
+        feats = feats.unsqueeze(3)
+        trans = self.transitions.unsqueeze(2)
+        
+        start_pad = torch.cuda.LongTensor( batch_size, 1 ).fill_(tag_to_ix[START_TAG])
+        tags = torch.cat([start_pad, tags], dim=1)
+        
+        for t in range(seq_len):
+            mask_t = mask[:, t]
+            emit_t = torch.cat([feats[b, t, tags[b][t + 1]] for b in range(batch_size)])
+            trans_t = torch.cat([trans[seq[t + 1], seq[t]] for seq in tags])
+            score += (emit_t + trans_t) * mask_t
+    
+        return score
+
+    
+    # initialize backpointers and viterbi variables in log space
+    def _viterbi_decode(self, feats, mask):    
+        batch_size, seq_len, tagset_size = feats.shape
+        
+        if is_cuda:
+            bptr = torch.LongTensor().cuda()
+            score = torch.full((batch_size, self.tagset_size), -10000.).cuda()
+        else:
+            bptr = torch.LongTensor()
+            score = torch.full((batch_size, self.tagset_size), -10000.)
+                
+        score[:, tag_to_ix[START_TAG]] = 0.
+
+        for t in range(seq_len): # recursion through the sequence
+            # backpointers and viterbi variables at this timestep
+            if is_cuda:
+                bptr_t = torch.LongTensor().cuda()
+                score_t = torch.Tensor().cuda()
+            else:
+                bptr_t = torch.LongTensor()
+                score_t = torch.Tensor()
             
+            # TODO: vectorize
+            for i in range(self.tagset_size): # for each next tag
+                m = [j.unsqueeze(1) for j in torch.max(score + self.transitions[i], 1)]
+                bptr_t  = torch.cat((bptr_t, m[1]), 1)  # best previous tags
+                score_t = torch.cat((score_t, m[0]), 1) # best transition scores
             
-    def loss(self, sentences, y, mask):
-        batch_size, seq_len = sentences.shape
-        
-        y_ = self._forward_alg(sentences, mask)
-        y_ = y_.view(batch_size*seq_len, -1)
-        y  = y.view(-1)
-        
-        loss_ = loss_function(y_, y)
+            if is_cuda:
+                bptr = torch.cat((bptr, bptr_t.unsqueeze(1)), 1)
+            else:
+                bptr = torch.cat((bptr, bptr_t.unsqueeze(1)), 1)
+            score = score_t + feats[:, t] # plus emission scores
+            
+        best_score, best_tag = torch.max(score, 1)
 
-        loss_.backward()
+        # back-tracking
+        # TODO: must cpu list?
+        bptr = bptr.tolist()
+        best_path = [[i] for i in best_tag.tolist()]
         
-        return loss_
+        for b in range(batch_size):
+            x = best_tag[b] # best tag
+            l = mask[b].sum().int().tolist()
+            for bptr_t in reversed(bptr[b][:l]):
+                x = bptr_t[x]
+                best_path[b].append(x)
+            best_path[b].pop()
+            best_path[b].reverse()
+
+        # return best_path
+        return best_score, best_path
+
+
+    def neg_log_likelihood(self, sentences, true_tags, mask):
+        
+        feats = self._get_lstm_features(sentences, mask)
+        
+        forward_score = self._forward_alg(feats, mask)
+        
+        gold_score = self._score_sentence(feats, true_tags, mask)
+        
+        return forward_score - gold_score
+
+    
+    def forward(self, sentence, mask):  # dont confuse this with _forward_alg above.
+        # Get the emission scores from the BiLSTM
+        lstm_feats = self._get_lstm_features(sentence, mask)
+
+        # Find the best path, given the features.
+        score, tag_seq = self._viterbi_decode(lstm_feats, mask)
+        
+        return score, tag_seq
 
 
 # In[ ]:
@@ -112,14 +240,17 @@ class LSTMTagger(nn.Module):
 
 def sequence_to_ixs(seq, to_ix):
     ixs = [to_ix[w] if w in to_ix else to_ix[UNK_TOKEN] for w in seq]
-    
     return torch.cuda.LongTensor(ixs) if is_cuda else torch.LongTensor(ixs)
 
 
 def ixs_to_sequence(seq, to_word):
     tokens = [to_word[ix] for ix in seq]
-    
     return tokens
+
+
+def log_sum_exp(x):
+    m = torch.max(x, -1)[0]
+    return m + torch.log(torch.sum(torch.exp(x - m.unsqueeze(-1)), -1))
 
 
 # In[ ]:
@@ -140,19 +271,29 @@ def train(training_data):
             y = list(map(lambda pair: sequence_to_ixs(pair[1], tag_to_ix), data))
 
             assert len(x) == len(y)
-            
+
+            # lengths = list(map(lambda x: x.shape[0], x))
+
             padded_seqs = pad_sequence(x, batch_first=True)
             padded_tags = pad_sequence(y, batch_first=True)
-        
-            mask = padded_tags.data.gt(0).float() # PAD = 0
-            
+
+            mask = padded_tags.data.gt(0).float()
+
             true_tags = padded_tags
 
+            loss_function = model.neg_log_likelihood(padded_seqs, true_tags, mask)
+            # predict_tags = model(padded_seqs, lengths)
+            # loss = loss_function(predict_tags, true_tags)
+            # loss = model.loss(predict_tags, true_tags)
+            
             optimizer.zero_grad()
             
-            loss = model.loss(padded_seqs, true_tags, mask)
+            loss = torch.mean(loss_function)
+            
+            loss.backward()
             
             optimizer.step()
+            
 
         if (epoch + 1) % 5 == 0:
             print("epoch: {}, loss: {}".format(epoch+1, loss))
@@ -166,6 +307,10 @@ def train(training_data):
 from utils.evaluate import evaluate
 from utils.constant import *
 
+
+# In[ ]:
+
+
 def test(test_data):
     with torch.no_grad():
         data = test_data
@@ -178,13 +323,13 @@ def test(test_data):
 
         mask = padded_tags.data.gt(0).float() # PAD = 0
         
-        y_predicts = model(padded_seqs, mask) #[80, 169, 4]
+        score, y_predicts = model(padded_seqs, mask) 
         
-        y_predicts = torch.max(y_predicts, 2)[1].view([len(x), -1])
+        # y_predicts = torch.max(y_predicts, 2)[1].view([len(x), -1])
         
         y_trues = y
-        
-        y_predicts = [y_[:len(y_trues[i])] for i, y_ in enumerate(y_predicts)]
+
+        # y_predicts = [y_[:len(y_trues[i])] for i, y_ in enumerate(y_predicts)]
 
         result = evaluate(y_predicts, y_trues)
 
@@ -195,7 +340,7 @@ def test(test_data):
 
 
 # Data 
-file_name = 'dataset/ese.txt'
+file_name = 'dataset/dse.txt'
 
 # Store model
 model_path = 'models/' + datetime.datetime.utcfromtimestamp(time.time()).strftime("%Y%m%d_%H%M") + '.model'
@@ -242,6 +387,32 @@ with open(f'dataset/{source}.pickle', 'rb') as handle:
 # In[ ]:
 
 
+# model = BiLSTM_CRF(embedding_dim, embedding_weights,
+#                    hidden_dim, tag_to_ix, 
+#                    dropout=dropout,num_layers=num_layers,
+#                    bidirectional=bidirectional)
+
+# if is_cuda: model.cuda()
+
+# train_data = [(
+#     "the wall street journal reported today that apple corporation made money".split(),
+#     "B I I I O O O B I O O".split()
+# ), (
+#     "georgia tech is a university in georgia".split(),
+#     "B I O O O O B".split()
+# )]
+
+# optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), 
+#                           lr=learning_rate, momentum=momentum)
+
+# train(train_data)
+
+# test(train_data)
+
+
+# In[ ]:
+
+
 best_result = 0
 results = []
 for num in range(10):
@@ -252,20 +423,20 @@ for num in range(10):
     train_data, test_data, dev_data = split_dataset(documents, num)
 
     # Create Model
-    model = LSTMTagger(embedding_dim, embedding_weights,
+    model = BiLSTM_CRF(embedding_dim, embedding_weights,
                        hidden_dim, tag_to_ix, 
                        dropout=dropout,num_layers=num_layers,
                        bidirectional=bidirectional)
 
     if is_cuda: model.cuda()
         
-    loss_function = nn.NLLLoss()
+    # loss_function = nn.NLLLoss()
 
     optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), 
                           lr=learning_rate, momentum=momentum)
-
+    
     train(train_data)
-
+    
     result, _ = test(test_data)
     
     if result['proportional']['f1'] >= best_result:
@@ -321,7 +492,7 @@ epochs = {epochs}''')
 # In[ ]:
 
 
-# model_path = 'models/20181108_0548.model'
+# model_path = 'models/20181110_1453.model'
 # fname = 'dse'
 
 # # Get Data and split
@@ -330,7 +501,7 @@ epochs = {epochs}''')
 
 
 # # Create Model
-# model = LSTMTagger(embedding_dim, embedding_weights,
+# model = BiLSTM_CRF(embedding_dim, embedding_weights,
 #                    hidden_dim, tag_to_ix,
 #                    dropout=dropout,
 #                    num_layers=num_layers,
