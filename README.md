@@ -7,6 +7,9 @@ This repo is my research during internship in National Institute of Informatics,
 
 ### References
 
+#### Bert
+* [Bert](https://github.com/huggingface/pytorch-pretrained-BERT)
+
 #### Advanced Repo
 * [[Keras] ELMO + BiLSTM + CRF](https://github.com/UKPLab/elmo-bilstm-cnn-crf)
 * [[Keras] BiLSTM + CRF](https://github.com/UKPLab/emnlp2017-bilstm-cnn-crf)

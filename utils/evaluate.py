@@ -1,16 +1,16 @@
 from .constant import *
 
-def get_segments(tag_seq):
+def get_segments(tag_seq, label_map):
     segs = []
     start = -1
     for i, y in enumerate(tag_seq):
-        if y == tag_to_ix["O"]: 
+        if y == label_map["O"]: 
             if start != -1: segs.append((start, i))
             start = -1
-        elif y == tag_to_ix["B"]:
+        elif y == label_map["B-DSE"]:
             if start != -1: segs.append((start, i))
             start = i
-        elif y == tag_to_ix["I"]:
+        elif y == label_map["I-DSE"]:
             if start == -1: start = i
         else:
             print("Bad predicted:", ix_to_tag[y])
@@ -28,7 +28,7 @@ def show(y_predict, y_true):
     print("Predict: {}\tTrue: {}".format(''.join(ps), ''.join(ts)))
 
 
-def evaluate(predicts, trues):
+def evaluate(predicts, trues, label_map):
     assert len(predicts) == len(trues)
     
     precision_prop, recall_prop = .0, .0
@@ -38,8 +38,8 @@ def evaluate(predicts, trues):
     for y_predict, y_true in zip(predicts, trues):
         assert len(y_predict) == len(y_true)
 
-        predict_segs = get_segments(y_predict)
-        true_segs = get_segments(y_true)
+        predict_segs = get_segments(y_predict, label_map)
+        true_segs = get_segments(y_true, label_map)
 
         predict_count = len(predict_segs)
         true_count = len(true_segs)
