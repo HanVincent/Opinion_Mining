@@ -13,7 +13,7 @@ def get_segments(tag_seq, label_map):
         elif y == label_map["I-DSE"]:
             if start == -1: start = i
         else:
-            print("Bad predicted:", ix_to_tag[y])
+            print("Bad predicted:", y)
     
     if start != -1 and start != len(tag_seq):
         segs.append((start, len(tag_seq)))
@@ -26,6 +26,10 @@ def show(y_predict, y_true):
     ts = [ix_to_tag[ix] for ix in y_true.cpu().numpy()]
     
     print("Predict: {}\tTrue: {}".format(''.join(ps), ''.join(ts)))
+
+    
+def token_basis_evaluate(predicts, trues):
+    pass
 
 
 def evaluate(predicts, trues, label_map):
