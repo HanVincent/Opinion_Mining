@@ -27,9 +27,21 @@ def show(y_predict, y_true):
     
     print("Predict: {}\tTrue: {}".format(''.join(ps), ''.join(ts)))
 
+
+
+from sklearn.metrics import confusion_matrix
+def confusion_matrix(predicts, trues):
+    cnf_matrix = confusion_matrix(trues, predicts)
     
-def token_basis_evaluate(predicts, trues):
-    pass
+    return cnf_matrix
+
+
+from sklearn.metrics import classification_report
+def multi_evaluate(predicts, trues, label_map):
+    target_names = sorted(label_map, key=label_map.get)
+    
+    result = classification_report(trues, predicts, target_names=target_names, output_dict=True)
+    return result
 
 
 def evaluate(predicts, trues, label_map):
