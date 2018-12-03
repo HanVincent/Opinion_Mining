@@ -1,3 +1,4 @@
+from sklearn.metrics import confusion_matrix, classification_report
 from .constant import *
 
 def get_segments(tag_seq, label_map):
@@ -28,19 +29,16 @@ def show(y_predict, y_true):
     print("Predict: {}\tTrue: {}".format(''.join(ps), ''.join(ts)))
 
 
-
-from sklearn.metrics import confusion_matrix
 def confusion_matrix(predicts, trues):
     cnf_matrix = confusion_matrix(trues, predicts)
     
     return cnf_matrix
 
 
-from sklearn.metrics import classification_report
-def multi_evaluate(predicts, trues, label_map):
+def multi_evaluate(predicts, trues, label_map, output_dict=True):
     target_names = sorted(label_map, key=label_map.get)
     
-    result = classification_report(trues, predicts, target_names=target_names, output_dict=True)
+    result = classification_report(trues, predicts, target_names=target_names, output_dict=output_dict)
     return result
 
 
