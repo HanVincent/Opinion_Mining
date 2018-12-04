@@ -35,14 +35,14 @@ def confusion_matrix(predicts, trues):
     return cnf_matrix
 
 
-def multi_evaluate(predicts, trues, label_map, output_dict=True):
+def token_basis_evaluate(predicts, trues, label_map, output_dict=True):
     target_names = sorted(label_map, key=label_map.get)
     
     result = classification_report(trues, predicts, target_names=target_names, output_dict=output_dict)
     return result
 
 
-def evaluate(predicts, trues, label_map):
+def overlap_evaluate(predicts, trues, label_map):
     assert len(predicts) == len(trues)
     
     precision_prop, recall_prop = .0, .0
