@@ -11,7 +11,7 @@ This repo is my research during internship in National Institute of Informatics,
 * [Bert](https://github.com/huggingface/pytorch-pretrained-BERT)
 * [Bert-Ner](https://github.com/kyzhouhzau/BERT-NER)
 * [Bert-BiLSTM-CRF-Ner](https://github.com/macanv/BERT-BiLSTM-CRF-NER)
-
+https://github.com/king-menin/ner-bert
 
 
 #### Advanced Repo
